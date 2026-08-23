@@ -118,6 +118,8 @@
 
 namespace OpenEMR\Common\Acl;
 
+require_once dirname(__DIR__, 3) . '/library/registry.inc.php';
+
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Gacl\Gacl;
@@ -136,16 +138,6 @@ class AclMain
             self::$gaclObject = new Gacl();
         }
         return self::$gaclObject;
-    }
-
-    /**
-     * Clear the GACL Cache.  We use this in Unit Tests, but this function should be avoided to prevent smashing
-     * the database.
-     */
-    public static function clearGaclCache()
-    {
-        $object = self::collectGaclObject();
-        $object->clear_cache();
     }
 
     /**
