@@ -344,6 +344,44 @@ class ClientRepository implements ClientRepositoryInterface
     }
 
     /**
+     * @param list<string> $scopes
+     */
+    public function saveScopes(ClientEntity $client, array $scopes): void
+    {
+        QueryUtils::sqlStatementThrowException(
+            "UPDATE oauth_clients SET scope = ? WHERE client_id = ?",
+            [implode(' ', $scopes), $client->getIdentifier()]
+        );
+        $client->setScopes($scopes);
+    }
+
+    /**
+     * Returns the decrypted secret for display to an authenticated administrator.
+     */
+    public function getClientSecret(ClientEntity $client): ?string
+    {
+        $storedSecret = QueryUtils::fetchSingleValue(
+            "SELECT client_secret FROM oauth_clients WHERE client_id = ?",
+            'client_secret',
+            [$client->getIdentifier()]
+        );
+        if (!is_string($storedSecret) || $storedSecret === '') {
+            return null;
+        }
+
+        try {
+            $secret = $this->cryptoGen->decryptFromDatabase($storedSecret);
+        } catch (CryptoGenException $exception) {
+            $this->getSystemLogger()->error('Failed to decrypt an OAuth client secret for administrator display', [
+                'client_id' => $client->getIdentifier(),
+                'exception' => $exception,
+            ]);
+            return null;
+        }
+        return $secret === '' ? null : $secret;
+    }
+
+    /**
      * Limits a client to an address book entry's Tasks and referrals, or with null lifts that.
      * It holds from the client's next request: the bearer check reads the client each time.
      */

@@ -24,6 +24,7 @@ use OpenEMR\Common\Auth\OpenIDConnect\JWT\JsonWebKeyParser;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\AccessTokenRepository;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\ClientRepository;
 use OpenEMR\Common\Auth\OpenIDConnect\Repositories\RefreshTokenRepository;
+use OpenEMR\Common\Auth\OpenIDConnect\Repositories\ScopeRepository;
 use OpenEMR\Common\Csrf\CsrfInvalidException;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Database\SqlQueryException;
@@ -176,6 +177,7 @@ class ClientAdminController
                 ,self::REVOKE_ACCESS_TOKEN => $this->revokeAccessToken($mainActionChild, $request)
                 ,self::REVOKE_REFRESH_TOKEN => $this->revokeRefreshToken($mainActionChild, $request)
                 ,'address-book' => $this->addressBookAction($mainActionChild, $request)
+                ,'scopes' => $this->scopesAction($mainActionChild, $request)
                 ,'allow-password-grant' => $this->passwordGrantAction($mainActionChild, true)
                 ,'deny-password-grant' => $this->passwordGrantAction($mainActionChild, false)
                 ,'enable-authorization-flow-skip' => $this->enableAuthorizationFlowSkipAction($mainActionChild)
@@ -476,6 +478,13 @@ class ClientAdminController
                 'type' => 'text'
                 ,'label' => xl("Identifier")
                 ,'value' => $client->getIdentifier()
+                ,'copyable' => true
+            ],
+            'clientSecret' => [
+                'type' => 'text'
+                ,'label' => xl("Client Secret")
+                ,'value' => $this->clientRepo->getClientSecret($client) ?? ''
+                ,'copyable' => true
             ],
             'name' => [
                 'type' => 'text'
@@ -598,6 +607,8 @@ class ClientAdminController
         // the limit still holds, so the page has to go on showing the client as limited.
         $addressBookUuid = $client->getAddressBookUuid();
         $addressBookRecipients = $this->addressBookRecipients();
+        $scopeRepository = new ScopeRepository($this->session);
+        $scopeRepository->setServerConfig(new ServerConfig());
         $data = [
             'listAction' => $listAction
             ,'client' => $client
@@ -614,6 +625,8 @@ class ClientAdminController
             ,'isEnabled' => $isEnabled
             ,'formValues' => $formValues
             ,'scopes' => $client->getScopes()
+            ,'availableScopes' => $scopeRepository->getCurrentSmartScopes()
+            ,'scopesLink' => $this->getActionUrl(['edit', $client->getIdentifier(), 'scopes'])
             ,'addressBookLink' => $this->getActionUrl(['edit', $client->getIdentifier(), 'address-book'])
             ,'addressBookUuid' => $addressBookUuid
             ,'addressBookRecipients' => $addressBookRecipients
@@ -1042,6 +1055,63 @@ class ClientAdminController
             $message = ($uuid === null ? xl('Removed the address book limit from') : xl('Limited to an address book entry:')) . ' ' . $client->getName();
         }
         $url = $this->getActionUrl(['edit', $client->getIdentifier()], ['queryParams' => ['message' => $message]]);
+        return new Response(null, Response::HTTP_SEE_OTHER, ['Location' => $url]);
+    }
+
+    /**
+     * Saves the scopes explicitly approved by an administrator for a client.
+     */
+    private function scopesAction(string $clientId, Request $request): Response
+    {
+        $client = $this->clientRepo->getClientEntity($clientId);
+        if ($client === false) {
+            return $this->notFoundAction();
+        }
+        if (!$request->isMethod('POST')) {
+            return new Response('', Response::HTTP_METHOD_NOT_ALLOWED, ['Allow' => 'POST']);
+        }
+
+        $postedScopes = $request->request->all()['scopes'] ?? [];
+        $scopes = is_array($postedScopes) ? array_values(array_filter($postedScopes, is_string(...))) : [];
+        /** @var list<string> $scopes */
+        $scopes = array_values(array_unique($scopes));
+        $scopeRepository = new ScopeRepository($this->session);
+        $scopeRepository->setServerConfig(new ServerConfig());
+        $invalidScopes = array_values(array_filter(
+            $scopes,
+            fn(string $scope): bool => $scopeRepository->getScopeEntityByIdentifier($scope) === null
+        ));
+        if ($invalidScopes !== []) {
+            $message = xl('These scopes are not supported:') . ' ' . implode(', ', $invalidScopes);
+            $url = $this->getActionUrl(['edit', $client->getIdentifier()], ['queryParams' => ['message' => $message]]);
+            return new Response(null, Response::HTTP_SEE_OTHER, ['Location' => $url]);
+        }
+
+        $before = $client->getScopes();
+        try {
+            $this->clientRepo->saveScopes($client, $scopes);
+        } catch (SqlQueryException $ex) {
+            return $this->returnFailedToSaveClientResponse($ex, $client);
+        }
+        $this->eventAuditLogger ??= EventAuditLogger::getInstance();
+        $this->eventAuditLogger->newEvent(
+            'oauth2',
+            $this->session->get('authUser', ''),
+            $this->session->get('authProvider', ''),
+            1,
+            json_encode([
+                'action' => 'update_client_scopes',
+                'client_id' => $client->getIdentifier(),
+                'client_name' => $client->getName(),
+                'admin_user_id' => $this->session->get('authUserID', 0),
+                'previous_scopes' => $before,
+                'scopes' => $scopes,
+            ], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE)
+        );
+        $url = $this->getActionUrl(
+            ['edit', $client->getIdentifier()],
+            ['queryParams' => ['message' => xl('Updated client scopes')]]
+        );
         return new Response(null, Response::HTTP_SEE_OTHER, ['Location' => $url]);
     }
 

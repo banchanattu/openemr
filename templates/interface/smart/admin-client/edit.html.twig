@@ -90,20 +90,31 @@
                     </form>
                 </div>
                 <div class="col-6">
-                    <label>{{ "Scopes"|xlt }}</label>
+                    <form method="post" action="{{ scopesLink|attr }}" class="mb-3" onsubmit="top.restoreSession()">
+                        <label>{{ "Scopes Requested"|xlt }}</label>
+                        <div class="mb-2">
+                            <input type="button" class="btn btn-sm btn-secondary" value="{{ "Select all"|xlt|attr }}" onclick="document.querySelectorAll('#client-scopes input').forEach(function (scope) { scope.checked = true; });" />
+                            <input type="button" class="btn btn-sm btn-secondary" value="{{ "Unselect all"|xlt|attr }}" onclick="document.querySelectorAll('#client-scopes input').forEach(function (scope) { scope.checked = false; });" />
+                        </div>
+                        <div id="client-scopes" class="list-group mb-2">
+                            {% for scope in availableScopes %}
+                                <label class="list-group-item m-0{% if scope in fhirWriteScopes %} text-warning{% endif %}">
+                                    <input type="checkbox" class="app-scope" name="scopes[]" value="{{ scope|attr }}"{% if scope in scopes %} checked{% endif %}>
+                                    {{ scope|text }}
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <small class="form-text text-muted">
+                            {{ "Select the scopes approved for this client. Saving replaces the client's registered scopes."|xlt }}
+                        </small>
+                        <button type="submit" class="btn btn-sm btn-primary mt-2">{{ "Save Scopes"|xlt }}</button>
+                    </form>
                     {% if fhirWriteScopes|length > 0 %}
                         <div class="border border-warning rounded px-2 py-1 mb-2 small text-warning" role="note">
                             <i class="fa fa-exclamation-triangle mr-1" aria-hidden="true"></i>
                             {{ "Caution: FHIR writes are experimental and pending audit. Review these permissions before enabling this client."|xlt }}
                         </div>
                     {% endif %}
-                    <ul>
-                        {% for scope in scopes %}
-                            <li{% if scope in fhirWriteScopes %} class="text-warning"{% endif %}>
-                                {{ scope|text }}
-                            </li>
-                        {% endfor %}
-                    </ul>
                 </div>
             </div>
             <div class="row">
@@ -283,4 +294,27 @@
             {% endif %}
         </div>
     </div>
+    <script>
+        document.querySelectorAll('.copy-to-clipboard').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const input = document.getElementById(button.dataset.copyTarget);
+                if (!input) {
+                    return;
+                }
+                const copy = navigator.clipboard
+                    ? navigator.clipboard.writeText(input.value)
+                    : Promise.resolve(function () {
+                        input.disabled = false;
+                        input.select();
+                        document.execCommand('copy');
+                        input.disabled = true;
+                    }());
+                copy.then(function () {
+                    const originalText = button.textContent;
+                    button.textContent = '{{ "Copied"|xlt|e("js") }}';
+                    setTimeout(function () { button.textContent = originalText; }, 1500);
+                });
+            });
+        });
+    </script>
 {% endblock %}

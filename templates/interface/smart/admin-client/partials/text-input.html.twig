@@ -1,5 +1,13 @@
 <div class="form-group">
     <label for="{{ key|attr }}">{{ setting.label|text }}</label>
-    <input type="text" id="{{ key|attr }}" name="{{ key|attr }}"
-           class="form-control" value="{{ setting.value|attr }}" readonly disabled />
+    <div class="input-group">
+        <input type="text" id="{{ key|attr }}" name="{{ key|attr }}"
+               class="form-control" value="{{ setting.value|attr }}" readonly disabled />
+        {% if setting.copyable and setting.value is not empty %}
+            <div class="input-group-append">
+                <button type="button" class="btn btn-outline-secondary copy-to-clipboard"
+                        data-copy-target="{{ key|attr }}">{{ "Copy"|xlt }}</button>
+            </div>
+        {% endif %}
+    </div>
 </div>
